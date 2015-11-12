@@ -1,0 +1,62 @@
+test:  # 测试镜像，日常测试可以放在依赖链的顶端
+   
+   image: ecs.yaochi.test:1.1  
+   aliyun.probe.cmd: "python /checkHealth.py"  # 进程退出码为0表示True
+   aliyun.probe.initial_delay_seconds: 10 #给容器启动一些时间，probe执行延时执行。
+   aliyun.probe.timeout_seconds: 300 # 超过这个时间还未通过probe，则认为部署失败
+   
+   labels:
+
+      aliyun.image.type: "service-test" #这个label通知天基docker管控这个容器的类型， 这个service-test type的容器除了整个服务启动结束时会被启动来确认整个服务工作正常外，后面会被部署和运维框架持续调用做巡检用。
+
+
+
+ebs:  # application ecs.yaochi.ebs
+  image: ecs_ecs-base-service:1.1.0.0.git_docker
+  restart: always
+  mem_limit : 4096M
+  volumes:
+    - CONTAINER_DIR  # 如果在dockerfile里面的volume，宿主机上会生成随机的目录，如果是重要的持久化文件，在compose里面指定volume，部署框架会自动在宿主机上创建应用对应的容易识别的volume目录，比如：/var/lib/docker/ecs/yaochi/ebs/CONTAINER_DIR:CONTAINER_DIR
+  
+  environment:
+    # - constraint:role==A  #在swarm上测试使用分配角色用，如果单机测试，可以不指定
+    - RequestedIP=xxx.xxx.xxx.xxx #多神修改的alidocker，可以指定固定ip
+  
+  labels:
+    # aliyun.deploy.container.count = 2  # 不用填写，接入天基时，由框架自动生成, 该Service部署几个实例。
+    # aliyun.deploy.container.cluster = cluster1   # 不用填写，接入天基时，由框架自动生成：部署到哪个Docker集群（接入天基用）。
+    # aliyun.deploy.container.host = "hostname1/100.82.98.1,hostname2/100.82.98.2" #不用填写，接入天基时，由框架自动生成, 容器实例如何分配到物理机上
+   aliyun.probe.cmd: "python /checkHealth.py"  # 进程退出码为0表示True
+   aliyun.probe.initial_delay_seconds: 10 #给容器启动一些时间，probe执行延时执行。
+   aliyun.probe.timeout_seconds: 300 # 超过这个时间还未通过probe，则认为部署失败
+
+  
+  links:
+    - phonixDB
+    - ecs_mqbus
+ 
+ 
+mqbus:   # application 全名 ecs.yaochi.mqbus
+  image: ecs_mqbus:1.1.0.0.git_docker
+  restart: always
+  mem_limit : 4096M
+  volumes:
+    - HOST:CONTAINER
+  environment:
+    - constraint:role==A
+  labels:
+    aliyun.probe.url: "http://${my-ip}/check_health"
+    aliyun.probe.initial_delay_seconds: 20
+    aliyun.probe.timeout_seconds: 300
+
+
+
+phonixDB:  # 数据库初始化，升级，备份，回滚镜像，被使用这个数据库的应用所依赖
+    image: ecs.phonixDB:1.1
+    aliyun.probe.cmd: "python /checkHealth.py"
+    aliyun.probe.initial_delay_seconds: 20
+    aliyun.probe.timeout_seconds: 300
+    volumes:
+    - HOST:CONTAINER
+    labels:
+      aliyun.image.type: "db-init" #这个label通知天基docker管控这个容器的类型， 这个db-init type的容器会被框架在升级后运行测试镜像失败时，单独运行进行数据库回滚。
